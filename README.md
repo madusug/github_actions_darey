@@ -129,16 +129,18 @@ jobs:
     
 ```
 For this to work, I discovered that I had to store my docker username and password as secrets on github. Thus allowing the values to be passed when running the workflow. This led to success.
+![success](./img/1.jpg)
 
 Next, I decided to deploy to the cloud using aws. I proceeded to search for the right workflow in github actions to build and push a new container image to Amazon ECR, and then deploy a new task definition to Amazon ECS, when the previous job "node.js.yml" is complete.
 
 To accomplish this, I had to:
+
 1. Create an ECR repository to store images
    a. For example: `aws ecr create-repository --repository-name my-ecr-repo --region us-east-2`.
    b. Replace the value of the `ECR_REPOSITORY` environment variable in the workflow below with your repository's name.
    c. Replace the value of the `AWS_REGION` environment variable in the workflow below with your repository's region.
 2. Create an ECS task definition, an ECS cluster, and an ECS service.
-   a. For example, follow the Getting Started guide on the ECS console: https://us-east-2.console.aws.amazon.com/ecs/home?region=us-east-2#/firstRun
+   a. For example, follow the Getting Started guide on the ECS console: <https://us-east-2.console.aws.amazon.com/ecs/home?region=us-east-2#/firstRun>
     b. Replace the value of the `ECS_SERVICE` environment variable in the workflow below with the name you set for the Amazon ECS service.
     c. Replace the value of the `ECS_CLUSTER` environment variable in the workflow below with the name you set for the cluster.
 3. Store your ECS task definition as a JSON file in your repository.
@@ -223,3 +225,4 @@ jobs:
 
 I also had to store my AWS Access key ID and Secret Key in Secrets on GitHub.
 This successfully deployed my image to AWS.
+![successful deployment to aws](./img/2.jpg)
