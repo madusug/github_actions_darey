@@ -1,8 +1,10 @@
 module.exports = {
-    env: {
-        browser: true,
-        es2021: true
-    },
+    "languageOptions": {
+        "globals":{
+            "document": "true",
+            "window": "true",
+            "console": "true",
+        },
     extends: 'eslint:recommended',
     parserOptions: {
         ecmaVersion: 'latest',
@@ -12,4 +14,5 @@ module.exports = {
         semi: ['error', 'always'],
         quotes: ['error', 'single']
     }
+}
 };
