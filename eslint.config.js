@@ -1,9 +1,9 @@
 module.exports = {
     languageOptions: {
         globals: {
-            document: "true",
-            window: "true",
-            console: "true",
+            document: 'true',
+            window: 'true',
+            console: 'true',
         },
     },
     rules: {
