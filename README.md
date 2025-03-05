@@ -50,6 +50,7 @@ app.use(express.static('public'));
 app.listen(port, () => {
   console.log(`Server is running at http://localhost:${port}`);
 });
+
 ```
 
 Next, in GitHub, I went to Actions -> New Workflow and searched for a workflow to do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node. After configuring the workflow I found, github created a node.js.yml file for me in the .github/workflows directory. The file had the following content.
@@ -83,11 +84,8 @@ jobs:
     - run: npm run build --if-present
     - run: npm test
 ```
-After successfully running the workflow, I decided to go even further I decided to edit my workflow to build images and send them to the docker repository.
+After successfully running the workflow, I decided to go even further I decided to edit my workflow to build images, run linter and send them to the docker repository.
 ```
-# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
-
 name: Node.js CI
 
 on:
@@ -98,7 +96,6 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     strategy:
@@ -114,115 +111,64 @@ jobs:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
     - run: npm ci
+    - name: Run Linter
+      run: npx eslint .
     - run: npm run build --if-present
     - run: npm test
-    - uses: mr-smithers-excellent/docker-build-push@v6
-      name: Build & push Docker image
+    -
+      name: Login to Docker Hub
+      uses: docker/login-action@v3
       with:
-        image: distinctugo/darey-github-actions
-        tags: v1, v2, latest
-        registry: docker.io
-        dockerfile: Dockerfile
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    -
+      name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+    -
+      name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    -
+      name: Build and push
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        push: true
+        tags: distinctugo/darey-github-actions:latest
 
     
 ```
 For this to work, I discovered that I had to store my docker username and password as secrets on github. Thus allowing the values to be passed when running the workflow. This led to success.
 ![success](./img/1.jpg)
 
-Next, I decided to deploy to the cloud using aws. I proceeded to search for the right workflow in github actions to build and push a new container image to Amazon ECR, and then deploy a new task definition to Amazon ECS, when the previous job "node.js.yml" is complete.
 
-To accomplish this, I had to:
+## Code Analysis Tool
 
-1. Create an ECR repository to store images
-   a. For example: `aws ecr create-repository --repository-name my-ecr-repo --region us-east-2`.
-   b. Replace the value of the `ECR_REPOSITORY` environment variable in the workflow below with your repository's name.
-   c. Replace the value of the `AWS_REGION` environment variable in the workflow below with your repository's region.
-2. Create an ECS task definition, an ECS cluster, and an ECS service.
-   a. For example, follow the Getting Started guide on the ECS console: <https://us-east-2.console.aws.amazon.com/ecs/home?region=us-east-2#/firstRun>
-    b. Replace the value of the `ECS_SERVICE` environment variable in the workflow below with the name you set for the Amazon ECS service.
-    c. Replace the value of the `ECS_CLUSTER` environment variable in the workflow below with the name you set for the cluster.
-3. Store your ECS task definition as a JSON file in your repository.
-    a. The format should follow the output of `aws ecs register-task-definition --generate-cli-skeleton`.
-    b. Replace the value of the `ECS_TASK_DEFINITION` environment variable in the workflow below with the path to the JSON file.
-    c. Replace the value of the `CONTAINER_NAME` environment variable in the workflow below with the name of the container in the `containerDefinitions` section of the task definition.
-4. Store an IAM user access key in GitHub Actions secrets named `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+I added code analysis tool `Linter` using `npx eslint .` to my github actions workflow. I then configured linters and static code analyzers by creating the file `.eslintrc` and adding syntax to configure the rules for ESLint and specifying what should be checked: 
 
-This workflow created a file "aws.yml" in my .github/workflows directory with my edits:
 ```
-name: Deploy to Amazon ECS
+{
+   "extends": "eslint:recommended",
+   "rules": {
+     // additional, custom rules here
+   }
+}
+```
+However, this didn't work. I kept on getting errors saying that the .eslintrc file was no longer valid. I did some research using various online tools and then proceeded to create the following file `eslint.config.js` and inputted the following syntax:
 
-on:
-  workflow_run:
-    workflows: ["Node.js CI"]
-    types:
-      - completed  # Ensures Workflow A completes before triggering this workflow
-
-env:
-  AWS_REGION: us-east-1                           # set this to your preferred AWS region, e.g. us-west-1
-  ECR_REPOSITORY: githubactions/npm_application           # set this to your Amazon ECR repository name
-  ECS_SERVICE: github-actions-service                 # set this to your Amazon ECS service name
-  ECS_CLUSTER: git_actions_darey                 # set this to your Amazon ECS cluster name
-  ECS_TASK_DEFINITION: .aws/darey-github-actions-task-definition-revision1.json       # set this to the path to your Amazon ECS task definition
-                                               # file, e.g. .aws/task-definition.json
-  CONTAINER_NAME: github-actions-container           # set this to the name of the container in the
-                                               # containerDefinitions section of your task definition
-
-permissions:
-  contents: read
-
-jobs:
-  deploy:
-    name: Deploy
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
-
-    - name: Build, tag, and push image to Amazon ECR
-      id: build-image
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ github.sha }}
-      run: |
-        # Build a docker container and
-        # push it to ECR so that it can
-        # be deployed to ECS.
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
-    - name: Fill in the new image ID in the Amazon ECS task definition
-      id: task-def
-      uses: aws-actions/amazon-ecs-render-task-definition@v1
-      with:
-        task-definition: ${{ env.ECS_TASK_DEFINITION }}
-        container-name: ${{ env.CONTAINER_NAME }}
-        image: ${{ steps.build-image.outputs.image }}
-
-    - name: Deploy Amazon ECS task definition
-      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-      with:
-        task-definition: ${{ steps.task-def.outputs.task-definition }}
-        service: ${{ env.ECS_SERVICE }}
-        cluster: ${{ env.ECS_CLUSTER }}
-        wait-for-service-stability: true
+```
+module.exports = {
+    languageOptions: {
+        globals: {
+            document: 'true',
+            window: 'true',
+            console: 'true',
+        },
+    },
+    rules: {
+        semi: ['error', 'always'],
+        quotes: ['error', 'single']
+    }
+};
 ```
 
-I also had to store my AWS Access key ID and Secret Key in Secrets on GitHub.
-This successfully deployed my image to AWS.
-![successful deployment to aws](./img/2.jpg)
+This worked and I was able to run the workflow successfully.
